@@ -48,6 +48,7 @@ import { stepMobAI, stepAirborne, stepPlayerMobTimers, useAbility, useDash } fro
 const MAX_EVENTS = 48;
 const STATS_EVERY = 6; // тиков между пакетами статистики
 const IDLE_AI = 5; // сек без инпута — тело временно берёт ИИ, чтобы комната жила
+const KNOCK_CAP = 200; // потолок скорости после толчка, px/с
 
 // ─── слот игрока ─────────────────────────────────────────────────────────────
 
@@ -1115,10 +1116,20 @@ export class Session {
           const dx = w.x[j] - w.x[i], dy = w.y[j] - w.y[i];
           const dd = dx * dx + dy * dy;
           if (dd > rr * rr) continue;
+          // Толчок даём только вместе с уроном. Иначе он копился каждый тик
+          // касания и разгонял Айзека до скорости, на которой шаг за кадр
+          // перескакивал тайл целиком — игрока буквально выносило сквозь стену.
+          const landed = w.iframe[j] <= 0;
           this.hurtIsaac(j, touch * mul * chargeBonus);
+          if (!landed) continue;
           const d = Math.sqrt(dd) || 1;
           w.vx[j] += (dx / d) * 90;
           w.vy[j] += (dy / d) * 90;
+          const sp = Math.sqrt(w.vx[j] * w.vx[j] + w.vy[j] * w.vy[j]);
+          if (sp > KNOCK_CAP) {
+            w.vx[j] = (w.vx[j] / sp) * KNOCK_CAP;
+            w.vy[j] = (w.vy[j] / sp) * KNOCK_CAP;
+          }
         }
         continue;
       }

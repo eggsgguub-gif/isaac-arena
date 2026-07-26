@@ -1,6 +1,9 @@
 // client/pool.js — все временные объекты клиента живут здесь и только здесь.
 // Кольцевые буферы фиксированного размера, ноль аллокаций после загрузки.
 
+import { tileSolid } from '../shared/sim.js';
+import { TILE } from '../shared/constants.js';
+
 export const P_MAX = 256;
 export const px = new Float32Array(P_MAX);
 export const py = new Float32Array(P_MAX);
@@ -95,29 +98,33 @@ export const ctlife = new Float32Array(CT_MAX);
 export const ctseq = new Uint16Array(CT_MAX);
 export const ctbig = new Uint8Array(CT_MAX);
 export const ctcol = new Uint8Array(CT_MAX);
+export const ctkind = new Uint8Array(CT_MAX); // 0 слеза Айзека, 1 снаряд моба
 let ctcur = 0;
 
-export function spawnCosmeticTear(x, y, vx, vy, life, seq, big, col) {
+export function spawnCosmeticTear(x, y, vx, vy, life, seq, big, col, kind) {
   for (let k = 0; k < CT_MAX; k++) {
     const c = (ctcur + k) % CT_MAX;
     if (ctlife[c] <= 0) {
       ctcur = (c + 1) % CT_MAX;
       ctx_[c] = x; cty[c] = y; ctvx[c] = vx; ctvy[c] = vy;
       ctlife[c] = life; ctseq[c] = seq; ctbig[c] = big; ctcol[c] = col;
+      ctkind[c] = kind || 0;
       return;
     }
   }
 }
 
-export function stepCosmetic(dt, ack) {
+export function stepCosmetic(dt, ack, tiles) {
   for (let i = 0; i < CT_MAX; i++) {
     if (ctlife[i] <= 0) continue;
-    // сервер уже показал настоящую слезу за этот инпут — гасим локальную
+    // сервер уже показывает настоящую слезу за этот инпут — гасим локальную
     const d = (ack - ctseq[i]) & 0xffff;
     if (d < 32768) { ctlife[i] = 0; continue; }
     ctlife[i] -= dt;
     ctx_[i] += ctvx[i] * dt;
     cty[i] += ctvy[i] * dt;
+    // о стену и камень гасим сами, иначе слеза красиво улетает сквозь них
+    if (tiles && tileSolid(tiles, (ctx_[i] / TILE) | 0, (cty[i] / TILE) | 0, 1)) ctlife[i] = 0;
   }
 }
 

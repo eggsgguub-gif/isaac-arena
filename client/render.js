@@ -24,12 +24,12 @@ import {
   ITEM_PRICE, IT_COUNT,
 } from '../shared/constants.js';
 
-import { net, stats, roster, rosterN, beginFrame, entityVisible, entityX, entityY } from './net.js';
+import { net, stats, roster, rosterN, beginFrame, entityVisible, entityX, entityY, localRenderPos } from './net.js';
 import { floorVar, decorN, decorX, decorY, decorK, mapN, mapX, mapY, mapKind, mapDoors, mapFlags, mapVisible } from './gen.js';
 import {
   P_MAX, px, py, plife, pmax, pcol, psize,
   D_MAX, dx, dy, dlife, dval, dcol,
-  CT_MAX, ctx_, cty, ctlife, ctbig, ctcol,
+  CT_MAX, ctx_, cty, ctlife, ctbig, ctcol, ctkind,
 } from './pool.js';
 import { input, isTouch, touch, STICK_R, BTN_A, BTN_B, stickVec } from './input.js';
 
@@ -113,6 +113,7 @@ const MOB_NAMES = ['ПОЛЗУН', 'ПЛЕВУН', 'ДЕЛИТЕЛЬ', 'ПРЫГ
 // порядок отрисовки сущностей по Y
 const order = new Uint16Array(MAX_ENTITIES);
 const orderY = new Float32Array(MAX_ENTITIES);
+const localPos = new Float32Array(2);
 
 let fps = 60, fpsAcc = 0, fpsN = 0, fpsT = 0;
 let shake = 0;
@@ -231,9 +232,14 @@ function drawEntities(ox, oy, now) {
   for (let k = 0; k < n; k++) {
     const i = order[k];
     const t = v.type[i];
-    let x = entityX(i), y = entityY(i);
-    // локальная сущность рисуется по предсказанию
-    if (i === net.entity && net.predOK) { x = net.px; y = net.py; }
+    let x, y;
+    if (i === net.entity) {
+      // своя сущность — по предсказанию, сглаженному между шагами симуляции
+      localRenderPos(localPos);
+      x = localPos[0]; y = localPos[1];
+    } else {
+      x = entityX(i); y = entityY(i);
+    }
     x += ox; y += oy;
 
     switch (t) {
@@ -363,7 +369,8 @@ function drawPickup(v, i, x, y, now) {
 function drawCosmetic(ox, oy) {
   for (let i = 0; i < CT_MAX; i++) {
     if (ctlife[i] <= 0) continue;
-    spr(ctbig[i] ? S_TEAR + 2 : S_TEAR + (ctcol[i] & 1), ox + ctx_[i] - 8, oy + cty[i] - 8);
+    const s = ctkind[i] === 1 ? S_SHOT : (ctbig[i] ? S_TEAR + 2 : S_TEAR + (ctcol[i] & 1));
+    spr(s, ox + ctx_[i] - 8, oy + cty[i] - 8);
   }
 }
 

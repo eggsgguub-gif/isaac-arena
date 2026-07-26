@@ -159,6 +159,19 @@ const SLIDE = 58;
  * Возвращает битовую маску касаний: 1 — стена по X, 2 — стена по Y.
  */
 export function moveAndCollide(w, i, dt, tiles, flying) {
+  // Если за тик проходим больше половины тайла, дробим шаг: иначе быстрая
+  // сущность может перепрыгнуть камень целиком и оказаться за ним.
+  const dist = (Math.abs(w.vx[i]) + Math.abs(w.vy[i])) * dt;
+  if (dist <= TILE * 0.5) return moveStep(w, i, dt, tiles, flying);
+  let steps = Math.ceil(dist / (TILE * 0.5));
+  if (steps > 6) steps = 6;
+  const sub = dt / steps;
+  let hit = 0;
+  for (let s = 0; s < steps; s++) hit |= moveStep(w, i, sub, tiles, flying);
+  return hit;
+}
+
+function moveStep(w, i, dt, tiles, flying) {
   const r = w.r[i];
   let hit = 0;
   let slideY = 0, slideX = 0;

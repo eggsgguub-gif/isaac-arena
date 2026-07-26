@@ -8,7 +8,7 @@ import {
   SIDE_ISAAC, SIDE_MONSTER,
 } from '../shared/constants.js';
 
-import { net, stats, connect, simStep } from './net.js';
+import { net, stats, connect, simStep, decayError } from './net.js';
 import { initRender, render, addShake } from './render.js';
 import { initInput, input, isTouch, touch, sampleInput, touchAiming, aimWorldX, aimWorldY, syncRect } from './input.js';
 import {
@@ -90,6 +90,8 @@ function loop(now) {
     sampleInput();
     simStep(input.b0, input.b1, computeAim());
   }
+  // доля незавершённого шага: по ней рендер сглаживает своего игрока до 60 FPS
+  net.alpha = acc / STEP_MS;
 
   frame(now, dtMs / 1000);
 }
@@ -98,7 +100,8 @@ function frame(now, dt) {
   drainEvents(now);
   stepParticles(dt);
   stepDamage(dt);
-  stepCosmetic(dt, net.renderAck);
+  stepCosmetic(dt, net.renderAck, net.tiles);
+  decayError(dt);
   render(now, dt);
 }
 

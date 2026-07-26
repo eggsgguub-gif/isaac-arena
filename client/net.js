@@ -6,7 +6,7 @@ import {
   DT, POS_SCALE, PROTOCOL_VERSION, ROOM_OX,
   T_NONE, T_ISAAC, T_MOB, T_TEAR, T_SHOT, T_PICKUP, T_BOMB,
   ST_ALIVE, ST_AIR, ST_CHARGE, ST_DOWN,
-  MOB_SPEED, M_BOSS,
+  MOB_SPEED, M_BOSS, M_SPITTER,
   SIDE_ISAAC, SIDE_MONSTER,
   IN_SUP, IN_SDOWN, IN_SLEFT, IN_SRIGHT, IN2_FIRE,
   TF_TRIPLE,
@@ -67,6 +67,9 @@ export const net = {
   py: WORLD_H / 2,
   ppx: WORLD_W / 2,
   ppy: WORLD_H / 2,
+  alpha: 0,   // доля текущего шага симуляции, для плавного кадра
+  errX: 0,    // визуальная поправка сверки, гасится за ~120 мс
+  errY: 0,
   aimAngle: 0,
   spiritX: WORLD_W / 2,
   spiritY: WORLD_H / 2,
@@ -121,6 +124,7 @@ const outBuf = new ArrayBuffer(32);
 const outDv = new DataView(outBuf);
 const outU8 = new Uint8Array(outBuf);
 let fireCd = 0;
+let monFireCd = 0;
 let lastPing = 0;
 let bytesWindow = 0, bytesWinIn = 0, bytesWinOut = 0;
 
@@ -333,10 +337,15 @@ function predictable() {
   return 1;
 }
 
+const MAX_ERR = 40; // больше — значит рассинхрон, там честнее мгновенный снап
+
 function reconcile() {
   const e = net.entity;
   const v = net.view;
   if (e < 0 || !v.present[e] || !predictable()) { net.predOK = 0; return; }
+
+  const hadPred = net.predOK;
+  const oldX = net.px, oldY = net.py;
 
   cw.x[LOCAL] = v.px[e] / POS_SCALE;
   cw.y[LOCAL] = v.py[e] / POS_SCALE;
@@ -354,7 +363,68 @@ function reconcile() {
   }
   net.px = cw.x[LOCAL];
   net.py = cw.y[LOCAL];
+
+  // Расхождение не показываем скачком: прячем его в визуальную поправку и
+  // гасим за пару кадров. Иначе толчок от моба или потерянный тик выглядят
+  // как телепорт сквозь стену.
+  if (hadPred) {
+    let dx = oldX - net.px, dy = oldY - net.py;
+    if (dx * dx + dy * dy > MAX_ERR * MAX_ERR) { dx = 0; dy = 0; }
+    net.errX += dx;
+    net.errY += dy;
+    if (net.errX > MAX_ERR) net.errX = MAX_ERR; else if (net.errX < -MAX_ERR) net.errX = -MAX_ERR;
+    if (net.errY > MAX_ERR) net.errY = MAX_ERR; else if (net.errY < -MAX_ERR) net.errY = -MAX_ERR;
+  } else {
+    net.errX = 0; net.errY = 0;
+  }
+  // схлопываем отрезок интерполяции: поправка уже держит картинку на месте
+  net.ppx = net.px;
+  net.ppy = net.py;
   net.predOK = 1;
+}
+
+/** Гасит визуальную поправку. Вызывается раз в кадр рендера. */
+export function decayError(dt) {
+  let k = 1 - dt * 14;
+  if (k < 0) k = 0;
+  net.errX *= k;
+  net.errY *= k;
+  if (net.errX < 0.05 && net.errX > -0.05) net.errX = 0;
+  if (net.errY < 0.05 && net.errY > -0.05) net.errY = 0;
+}
+
+// последняя отданная рендеру позиция — чтобы смена источника не давала скачка
+let lastSrc = -1, lastRX = 0, lastRY = 0;
+
+/**
+ * Позиция локальной сущности для кадра: предсказание, сглаженное между шагами
+ * симуляции, плюс затухающая поправка сверки.
+ */
+export function localRenderPos(out) {
+  const e = net.entity;
+  let src, tx, ty;
+  if (net.predOK) {
+    src = 0;
+    const a = net.alpha;
+    tx = net.ppx + (net.px - net.ppx) * a;
+    ty = net.ppy + (net.py - net.ppy) * a;
+  } else if (e >= 0 && entityVisible(e)) {
+    src = 1;
+    tx = entityX(e);
+    ty = entityY(e);
+  } else {
+    src = 2;
+    tx = net.px; ty = net.py;
+  }
+  // переключение источника (например, начался рывок) прячем в ту же поправку
+  if (src !== lastSrc && lastSrc >= 0) {
+    const dx = lastRX - tx, dy = lastRY - ty;
+    if (dx * dx + dy * dy <= MAX_ERR * MAX_ERR) { net.errX += dx; net.errY += dy; }
+  }
+  lastSrc = src;
+  lastRX = tx; lastRY = ty;
+  out[0] = tx + net.errX;
+  out[1] = ty + net.errY;
 }
 
 const MOB_R_LOCAL = new Uint8Array([6, 6, 7, 6, 7, 4, 13]);
@@ -404,8 +474,11 @@ export function simStep(b0, b1, aimAngle) {
     net.ppx = net.px; net.ppy = net.py;
   }
 
-  // мгновенные косметические слёзы — отклик без ожидания RTT
-  if (net.side === SIDE_ISAAC && net.entity >= 0 && net.view.type[net.entity] === T_ISAAC) {
+  // Мгновенный отклик на выстрел: рисуем свою слезу сразу, не дожидаясь RTT.
+  // Живёт она ровно до того кадра, в котором на экран выходит серверная —
+  // сигнал даёт ack отрисовываемого снапшота, поэтому разрыва не бывает.
+  const ent = net.entity;
+  if (net.side === SIDE_ISAAC && ent >= 0 && net.view.type[ent] === T_ISAAC) {
     fireCd -= DT;
     let sx = 0, sy = 0;
     if (b0 & IN_SLEFT) sx -= 1;
@@ -420,16 +493,28 @@ export function simStep(b0, b1, aimAngle) {
       const triple = (stats.itemMask & (1 << 9)) !== 0;
       const big = (stats.itemMask & (1 << 11)) !== 0 ? 1 : 0;
       const sp = stats.shotspeed;
-      const life = Math.min(stats.range, 0.35);
+      const life = stats.range || ISAAC_BASE_RANGE;
+      // сервер добавляет слезе часть скорости стрелка — повторяем, иначе
+      // на бегу локальная и серверная слёзы расходятся вбок
+      const ivx = cw.vx[LOCAL] * 0.32, ivy = cw.vy[LOCAL] * 0.32;
       if (triple) {
         for (let k = -1; k <= 1; k++) {
           const a = base + k * 0.17;
-          spawnCosmeticTear(net.px, net.py, Math.cos(a) * sp, Math.sin(a) * sp, life, net.seq, big, net.slot & 1);
+          spawnCosmeticTear(net.px, net.py, Math.cos(a) * sp + ivx, Math.sin(a) * sp + ivy, life, net.seq, big, net.slot & 1, 0);
         }
       } else {
-        spawnCosmeticTear(net.px, net.py, sx * sp, sy * sp, life, net.seq, big, net.slot & 1);
+        spawnCosmeticTear(net.px, net.py, sx * sp + ivx, sy * sp + ivy, life, net.seq, big, net.slot & 1, 0);
       }
       fireCd = 1 / (stats.firerate || ISAAC_BASE_FIRERATE);
+    }
+  } else if (net.side === SIDE_MONSTER && ent >= 0 && net.view.type[ent] === T_MOB) {
+    // у Плевуна и босса базовая атака тоже должна отзываться мгновенно
+    const arch = net.view.sub[ent];
+    monFireCd -= DT;
+    if ((b1 & IN2_FIRE) && monFireCd <= 0 && (arch === M_SPITTER || arch === M_BOSS)) {
+      spawnCosmeticTear(net.px, net.py, Math.cos(aimAngle) * 88, Math.sin(aimAngle) * 88,
+        2.0, net.seq, 0, 0, 1);
+      monFireCd = arch === M_BOSS ? 0.8 : 1.1;
     }
   }
 
