@@ -1,0 +1,24 @@
+{
+  "name": "isaac-arena",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Asymmetric 2v3 twin-stick roguelike arena. Canvas2D, zero client deps, authoritative binary server.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "atlas": "node tools/atlas.mjs",
+    "build": "node tools/build.mjs",
+    "dev": "node tools/build.mjs --watch --serve",
+    "start": "node server/index.js",
+    "bench": "node tools/bench.mjs",
+    "postinstall": "node tools/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "optionalDependencies": {
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0"
+  }
+}
