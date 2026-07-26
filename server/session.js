@@ -134,6 +134,12 @@ function extraOf(w, i) {
   }
   if (t === T_PICKUP) return w.sub2[i];
   if (t === T_BOMB) return (w.ttl[i] * 60) | 0;
+  if (t === T_SHOT) {
+    // слот стрелка (+1), 0 — стрелял ИИ. Клиенту это нужно, чтобы узнать
+    // свой снаряд и не рисовать его дважды поверх локального предсказания.
+    const o = w.owner[i];
+    return o > 0 ? w.ctrl[o - 1] : 0;
+  }
   return 0;
 }
 

@@ -29,6 +29,7 @@ import { setMapRoom, finishMap, buildRoomDecor } from './gen.js';
 import {
   spawnCosmeticTear, stepCosmetic, clearCosmetic, clearParticles, clearDamage,
   queueEvent, clearEvents,
+  CT_MAX, ctlife, ctvx, ctvy, ctkind, ctEnt,
 } from './pool.js';
 
 // ─── состояние ───────────────────────────────────────────────────────────────
@@ -103,6 +104,10 @@ let histHead = -1, histCount = 0;
 
 // кадр интерполяции, выбранный на текущий кадр рендера
 let iA = -1, iB = -1, iT = 0;
+
+// свои снаряды, у которых есть локальная копия: их серверную версию не рисуем
+const srvPair = new Uint8Array(MAX_ENTITIES);
+export function projectileHidden(id) { return srvPair[id] === 1; }
 
 // ─── история инпутов для сверки ──────────────────────────────────────────────
 
@@ -236,6 +241,8 @@ function onPacket(dv, u8) {
       if (changed) {
         histHead = -1; histCount = 0;
         clearParticles(); clearDamage(); clearCosmetic(); clearEvents();
+        srvPair.fill(0);
+        net.errX = 0; net.errY = 0;
         net.predOK = 0;
       }
       break;
@@ -252,6 +259,7 @@ function onPacket(dv, u8) {
       histHead = h;
       if (histCount < SNAPSHOT_HISTORY) histCount++;
       reconcile();
+      pairOwnProjectiles();
       break;
     }
     case S_EVENTS: {
@@ -335,6 +343,60 @@ function predictable() {
   const st = v.state[e];
   if (st & (ST_AIR | ST_CHARGE | ST_DOWN)) return 0;
   return 1;
+}
+
+/** Насколько расходятся направления двух векторов: 0 — совпали, 2 — навстречу. */
+function dirDiff(ax, ay, bx, by) {
+  const la = Math.sqrt(ax * ax + ay * ay) || 1;
+  const lb = Math.sqrt(bx * bx + by * by) || 1;
+  return 1 - (ax * bx + ay * by) / (la * lb);
+}
+
+/**
+ * Связывает свои серверные снаряды с локальными копиями.
+ * Пока пара жива, серверную копию рендер не показывает: она отстаёт на
+ * задержку интерполяции и начинается заново от ствола, из-за чего один
+ * выстрел выглядел как два. Исчез серверный снаряд — гасим и локальный:
+ * значит, он во что-то попал.
+ */
+function pairOwnProjectiles() {
+  const v = net.view;
+  const slot = net.slot;
+  if (slot < 0) return;
+
+  for (let c = 0; c < CT_MAX; c++) {
+    if (ctlife[c] <= 0 || ctEnt[c] === 0) continue;
+    const id = ctEnt[c] - 1;
+    const t = v.type[id];
+    if (!v.present[id] || (t !== T_TEAR && t !== T_SHOT)) {
+      ctlife[c] = 0;
+      ctEnt[c] = 0;
+    }
+  }
+  for (let i = 0; i < MAX_ENTITIES; i++) {
+    if (!srvPair[i]) continue;
+    const t = v.type[i];
+    if (!v.present[i] || (t !== T_TEAR && t !== T_SHOT)) srvPair[i] = 0;
+  }
+
+  for (let i = 0; i < v.high; i++) {
+    if (!v.present[i] || srvPair[i]) continue;
+    const t = v.type[i];
+    let kind;
+    if (t === T_TEAR && v.sub[i] === slot) kind = 0;
+    else if (t === T_SHOT && v.extra[i] === slot + 1) kind = 1;
+    else continue;
+    let best = -1, bestD = 1e9;
+    for (let c = 0; c < CT_MAX; c++) {
+      if (ctlife[c] <= 0 || ctEnt[c] !== 0 || ctkind[c] !== kind) continue;
+      const d = dirDiff(ctvx[c], ctvy[c], v.pvx[i], v.pvy[i]);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    if (best >= 0 && bestD < 1.0) { // в пределах 90°, чтобы не спутать с чужим
+      ctEnt[best] = i + 1;
+      srvPair[i] = 1;
+    }
+  }
 }
 
 const MAX_ERR = 40; // больше — значит рассинхрон, там честнее мгновенный снап

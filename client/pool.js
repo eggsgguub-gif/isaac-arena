@@ -99,6 +99,7 @@ export const ctseq = new Uint16Array(CT_MAX);
 export const ctbig = new Uint8Array(CT_MAX);
 export const ctcol = new Uint8Array(CT_MAX);
 export const ctkind = new Uint8Array(CT_MAX); // 0 слеза Айзека, 1 снаряд моба
+export const ctEnt = new Uint16Array(CT_MAX); // id серверного снаряда +1, 0 — пары нет
 let ctcur = 0;
 
 export function spawnCosmeticTear(x, y, vx, vy, life, seq, big, col, kind) {
@@ -109,21 +110,24 @@ export function spawnCosmeticTear(x, y, vx, vy, life, seq, big, col, kind) {
       ctx_[c] = x; cty[c] = y; ctvx[c] = vx; ctvy[c] = vy;
       ctlife[c] = life; ctseq[c] = seq; ctbig[c] = big; ctcol[c] = col;
       ctkind[c] = kind || 0;
+      ctEnt[c] = 0;
       return;
     }
   }
 }
 
-export function stepCosmetic(dt, ack, tiles) {
+/**
+ * Ведёт локальные снаряды. Серверную копию не ждём: пока она существует, её
+ * прячет net.js, а здесь снаряд летит непрерывно — иначе выстрел выглядел бы
+ * как два подряд, ведь серверная копия начинает рисоваться снова от ствола.
+ */
+export function stepCosmetic(dt, tiles) {
   for (let i = 0; i < CT_MAX; i++) {
     if (ctlife[i] <= 0) continue;
-    // сервер уже показывает настоящую слезу за этот инпут — гасим локальную
-    const d = (ack - ctseq[i]) & 0xffff;
-    if (d < 32768) { ctlife[i] = 0; continue; }
     ctlife[i] -= dt;
     ctx_[i] += ctvx[i] * dt;
     cty[i] += ctvy[i] * dt;
-    // о стену и камень гасим сами, иначе слеза красиво улетает сквозь них
+    // о стену и камень гасим сами, иначе снаряд красиво улетает сквозь них
     if (tiles && tileSolid(tiles, (ctx_[i] / TILE) | 0, (cty[i] / TILE) | 0, 1)) ctlife[i] = 0;
   }
 }

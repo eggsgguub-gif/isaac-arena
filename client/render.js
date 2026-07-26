@@ -24,7 +24,7 @@ import {
   ITEM_PRICE, IT_COUNT,
 } from '../shared/constants.js';
 
-import { net, stats, roster, rosterN, beginFrame, entityVisible, entityX, entityY, localRenderPos } from './net.js';
+import { net, stats, roster, rosterN, beginFrame, entityVisible, entityX, entityY, localRenderPos, projectileHidden } from './net.js';
 import { floorVar, decorN, decorX, decorY, decorK, mapN, mapX, mapY, mapKind, mapDoors, mapFlags, mapVisible } from './gen.js';
 import {
   P_MAX, px, py, plife, pmax, pcol, psize,
@@ -217,6 +217,8 @@ function drawEntities(ox, oy, now) {
     if (!entityVisible(i)) continue;
     const t = v.type[i];
     if (t === T_NONE) continue;
+    // свой снаряд уже нарисован локальной копией — серверную прячем
+    if ((t === T_TEAR || t === T_SHOT) && projectileHidden(i)) continue;
     order[n] = i;
     orderY[n] = (t === T_TEAR || t === T_SHOT) ? 1e6 : entityY(i);
     n++;

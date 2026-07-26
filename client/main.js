@@ -8,7 +8,8 @@ import {
   SIDE_ISAAC, SIDE_MONSTER,
 } from '../shared/constants.js';
 
-import { net, stats, connect, simStep, decayError } from './net.js';
+import { net, stats, connect, simStep, decayError, projectileHidden } from './net.js';
+import * as pool from './pool.js';
 import { initRender, render, addShake } from './render.js';
 import { initInput, input, isTouch, touch, sampleInput, touchAiming, aimWorldX, aimWorldY, syncRect } from './input.js';
 import {
@@ -55,8 +56,12 @@ function boot() {
   input.onMusic = () => { toggleMusic(); };
   input.onGesture = () => { initAudio(); };
   connect();
-  // отладочный доступ из консоли: состояние + принудительный кадр
-  window.__ia = { net, stats, input, draw: () => frame(performance.now(), 1 / 60) };
+  // отладочный доступ из консоли: состояние, принудительный кадр, пулы
+  window.__ia = {
+    net, stats, input, pool,
+    hidden: projectileHidden,
+    draw: () => frame(performance.now(), 1 / 60),
+  };
   const el = document.getElementById('boot');
   if (el) el.remove();
   requestAnimationFrame(loop);
@@ -100,7 +105,7 @@ function frame(now, dt) {
   drainEvents(now);
   stepParticles(dt);
   stepDamage(dt);
-  stepCosmetic(dt, net.renderAck, net.tiles);
+  stepCosmetic(dt, net.tiles);
   decayError(dt);
   render(now, dt);
 }
