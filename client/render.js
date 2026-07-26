@@ -31,7 +31,7 @@ import {
   D_MAX, dx, dy, dlife, dval, dcol,
   CT_MAX, ctx_, cty, ctlife, ctbig, ctcol,
 } from './pool.js';
-import { input } from './input.js';
+import { input, isTouch, touch, STICK_R, BTN_A, BTN_B, stickVec } from './input.js';
 
 let ctx = null;
 let atlas = null;
@@ -85,6 +85,10 @@ const T_SHOP = 'МАГАЗИН';
 const T_FREE = 'БЕСПЛАТНО';
 const T_ISAACS = 'АЙЗЕКИ';
 const T_MONSTERS = 'МОНСТРЫ';
+const T_MOVE = 'ХОД';
+const T_FIRE = 'ОГОНЬ';
+const T_ABILITY = 'УДАР';
+const T_DASH = 'РЫВОК';
 const HELP = [
   'WASD — движение',
   'СТРЕЛКИ / ЛКМ — стрельба',
@@ -92,6 +96,12 @@ const HELP = [
   'SHIFT — рывок',
   'E — бомба',
   'M — звук, N — музыка, TAB — справка',
+];
+const HELP_TOUCH = [
+  'ЛЕВАЯ ПОЛОВИНА — движение',
+  'ПРАВАЯ ПОЛОВИНА — прицел и огонь',
+  'КНОПКА СПРАВА — способность / бомба',
+  'НИЖНЯЯ КНОПКА — рывок',
 ];
 const ITEM_NAMES = [
   'УРОН+', 'СКОРОСТРЕЛ+', 'СКОРОСТЬ+', 'ДАЛЬНОСТЬ+', 'РАЗГОН СЛЁЗ+',
@@ -388,7 +398,7 @@ function drawHud(now) {
   else drawMonsterHud(now);
 
   drawMinimap();
-  drawRoster();
+  if (!isTouch) drawRoster(); // на телефоне место занимают стики
 
   // строка состояния
   ctx.fillStyle = COL_DIM;
@@ -432,7 +442,7 @@ function drawMonsterHud(now) {
   ctx.fillRect(3, 12, (barW * k) | 0, 5);
   ctx.fillStyle = COL_DIM;
   ctx.font = '6px monospace';
-  ctx.fillText('ПРОБЕЛ', 50, 17);
+  ctx.fillText(isTouch ? T_ABILITY : 'ПРОБЕЛ', 50, 17);
   // рывок
   ctx.fillStyle = '#000';
   ctx.fillRect(3, 19, barW, 4);
@@ -440,7 +450,7 @@ function drawMonsterHud(now) {
   const k2 = stats.dashCd > 0 ? 1 - Math.min(1, stats.dashCd / 1.6) : 1;
   ctx.fillRect(3, 19, (barW * k2) | 0, 4);
   ctx.fillStyle = COL_DIM;
-  ctx.fillText('SHIFT', 50, 23);
+  ctx.fillText(isTouch ? T_DASH : 'SHIFT', 50, 23);
   ctx.font = '7px monospace';
 
   // тело и здоровье
@@ -564,17 +574,98 @@ function drawOverlays(now) {
   }
 
   if (input.helpOpen) {
+    const list = isTouch ? HELP_TOUCH : HELP;
     ctx.fillStyle = 'rgba(0,0,0,0.8)';
-    ctx.fillRect(60, 50, VIEW_W - 120, 100);
+    ctx.fillRect(60, 50, VIEW_W - 120, 26 + list.length * 12);
     ctx.fillStyle = COL_TXT;
     ctx.font = '7px monospace';
-    for (let i = 0; i < HELP.length; i++) ctx.fillText(HELP[i], VIEW_W / 2, 66 + i * 12);
+    for (let i = 0; i < list.length; i++) ctx.fillText(list[i], VIEW_W / 2, 66 + i * 12);
   }
 
-  // прицел
-  if (net.status === 1) {
+  // прицел мыши (на сенсоре его нет — там стик)
+  if (net.status === 1 && !isTouch) {
     ctx.textAlign = 'left';
     spr(S_RETICLE, input.mx - 8, input.my - 8);
+  }
+  ctx.textAlign = 'left';
+  if (isTouch) drawTouchControls();
+}
+
+// ─── сенсорные органы управления ─────────────────────────────────────────────
+
+const stickBuf = new Float32Array(3);
+
+function ring(x, y, r, fill, stroke, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, 6.28318);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+  ctx.globalAlpha = 1;
+}
+
+function drawTouchControls() {
+  // стик движения
+  if (touch.moveLive) {
+    stickVec(touch.mbx, touch.mby, touch.mkx, touch.mky, stickBuf);
+    ring(touch.mbx, touch.mby, STICK_R, 'rgba(0,0,0,0.35)', COL_DIM, 0.85);
+    ring(touch.mbx + stickBuf[0], touch.mby + stickBuf[1], 10, COL_TXT, null, 0.75);
+  } else {
+    ring(58, VIEW_H - 58, STICK_R, 'rgba(0,0,0,0.22)', COL_DIM, 0.35);
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = COL_DIM;
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(T_MOVE, 58, VIEW_H - 56);
+    ctx.globalAlpha = 1;
+  }
+
+  // стик прицела
+  if (touch.aimLive) {
+    stickVec(touch.abx, touch.aby, touch.akx, touch.aky, stickBuf);
+    ring(touch.abx, touch.aby, STICK_R, 'rgba(0,0,0,0.35)', COL_DIM, 0.85);
+    const col = net.side === SIDE_ISAAC ? COL_ISAAC : COL_MON;
+    ring(touch.abx + stickBuf[0], touch.aby + stickBuf[1], 10, col, null, 0.8);
+  } else {
+    ring(300, VIEW_H - 58, STICK_R, 'rgba(0,0,0,0.22)', COL_DIM, 0.3);
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = COL_DIM;
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(T_FIRE, 300, VIEW_H - 56);
+    ctx.globalAlpha = 1;
+  }
+
+  // кнопка действия: у Айзека бомба, у монстра способность
+  const isaac = net.side === SIDE_ISAAC;
+  const ready = isaac ? stats.bombs > 0 : stats.abilityCd <= 0;
+  ring(BTN_A.x, BTN_A.y, BTN_A.r,
+    touch.btnA ? 'rgba(255,210,87,0.5)' : 'rgba(0,0,0,0.4)',
+    ready ? COL_GOLD : COL_DIM, 0.9);
+  if (isaac) spr(S_BOMB, BTN_A.x - 8, BTN_A.y - 10);
+  else {
+    ctx.fillStyle = ready ? COL_GOLD : COL_DIM;
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(T_ABILITY, BTN_A.x, BTN_A.y + 2);
+  }
+  if (isaac) {
+    ctx.fillStyle = COL_TXT;
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(NUMS[stats.bombs], BTN_A.x, BTN_A.y + 14);
+  }
+
+  // рывок — только монстрам
+  if (!isaac) {
+    const dashReady = stats.dashCd <= 0;
+    ring(BTN_B.x, BTN_B.y, BTN_B.r,
+      touch.btnB ? 'rgba(143,216,255,0.45)' : 'rgba(0,0,0,0.4)',
+      dashReady ? COL_ISAAC : COL_DIM, 0.9);
+    ctx.fillStyle = dashReady ? COL_ISAAC : COL_DIM;
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(T_DASH, BTN_B.x, BTN_B.y + 2);
   }
   ctx.textAlign = 'left';
 }

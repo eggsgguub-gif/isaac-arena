@@ -2,24 +2,38 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0a0709">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Isaac Arena — 2 vs 3</title>
 <style>
   html,body{margin:0;height:100%;background:#05040a;overflow:hidden;
-    font:12px/1.4 monospace;color:#7a6f63;-webkit-user-select:none;user-select:none;touch-action:none}
+    font:12px/1.4 monospace;color:#7a6f63;-webkit-user-select:none;user-select:none;
+    touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;
+    -webkit-tap-highlight-color:transparent}
   #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
   #c{image-rendering:pixelated;image-rendering:crisp-edges;transform-origin:center center;
-    background:#05040a;cursor:crosshair;display:block}
+    background:#05040a;cursor:crosshair;display:block;touch-action:none}
   #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
     flex-direction:column;gap:8px;background:#05040a;color:#e8dcc8;z-index:5;letter-spacing:2px}
   #boot b{font-size:18px;letter-spacing:4px}
   #boot span{color:#7a6f63;font-size:11px;letter-spacing:1px}
+  #rotate{display:none;position:fixed;inset:0;z-index:9;background:#05040a;color:#e8dcc8;
+    align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:24px}
+  #rotate b{font-size:15px;letter-spacing:3px}
+  #rotate span{color:#7a6f63;font-size:11px;line-height:1.8}
+  #rotate i{font-size:38px;font-style:normal;animation:tilt 1.6s ease-in-out infinite}
+  @keyframes tilt{0%,100%{transform:rotate(0)}50%{transform:rotate(90deg)}}
+  /* сенсорный экран в портрете — играть неудобно, просим повернуть */
+  @media (orientation:portrait) and (pointer:coarse){ #rotate{display:flex} }
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="c" width="480" height="270"></canvas></div>
 <div id="boot"><b>ISAAC ARENA</b><span>2 Айзека против 3 монстров — загрузка…</span></div>
+<div id="rotate"><i>▯</i><b>ПОВЕРНИТЕ ТЕЛЕФОН</b><span>Игра рассчитана на горизонтальный экран.<br>Слева — движение, справа — прицел и огонь.</span></div>
 <script type="module" src="main.js"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ import {
 
 import { net, stats, connect, simStep } from './net.js';
 import { initRender, render, addShake } from './render.js';
-import { initInput, input, sampleInput, aimWorldX, aimWorldY } from './input.js';
+import { initInput, input, isTouch, touch, sampleInput, touchAiming, aimWorldX, aimWorldY, syncRect } from './input.js';
 import {
   stepParticles, stepDamage, stepCosmetic, burst, spawnParticle, spawnDamage,
   eqUsed, eqKind, eqX, eqY, eqP, eqDue, EQ_MAX,
@@ -32,11 +32,15 @@ function resize() {
   const sx = window.innerWidth / VIEW_W;
   const sy = window.innerHeight / VIEW_H;
   let s = Math.min(sx, sy);
-  if (s > 1) s = Math.floor(s); // целые множители — ни одного размытого пикселя
-  if (s < 0.5) s = 0.5;
+  // на ПК целые множители — ни одного размытого пикселя;
+  // на телефоне важнее занять экран, там дробный масштаб незаметен
+  if (!isTouch && s > 1) s = Math.floor(s);
+  if (s < 0.4) s = 0.4;
   canvas.style.transform = 'scale(' + s + ')';
+  syncRect();
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
 resize();
 
 // ─── загрузка атласа ─────────────────────────────────────────────────────────
@@ -99,6 +103,8 @@ function frame(now, dt) {
 }
 
 function computeAim() {
+  // на сенсоре направление задаёт правый стик, на ПК — курсор
+  if (touchAiming()) return touch.aimAngle;
   const ax = aimWorldX() - net.px;
   const ay = aimWorldY() - net.py;
   if (ax === 0 && ay === 0) return net.aimAngle;
